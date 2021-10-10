@@ -1,11 +1,11 @@
 /*DarkMAGICK Features:
         1)Max wallet holdings
-        2)Max Buy/Sell
+        2)Max transaction
         3)2% BUSD
         4)2% Marketing
         5)2% Liquidity
         
-                  //
+                //
                 //
               _ //
            .' . // '.
@@ -21,7 +21,20 @@
         |    |
         |____|
        =='  '==
-        */
+        DarkMagick RPG
+        A story driven turn-based RPG with 
+        tokenized ecosystem, in-game marketplace and NFT.
+
+Anti-Rug / Transparency    
+- maxSellTransactionAmount is set to 200k
+and cannot be set to lower than 50k
+
+- _maxTxAmount is set to 400k
+and cannot be set to lower than 200k
+
+- liquidityFee and marketingFee cannot set higher than 10% each
+
+- marketing wallet does not receive reward */
 
 
 
@@ -790,7 +803,7 @@ contract DividendPayingToken is ERC20, Ownable, DividendPayingTokenInterface, Di
   using SafeMathUint for uint256;
   using SafeMathInt for int256;
 
-  address public immutable BUSD = address(0x7083609fCE4d1d8Dc0C979AAb8c869Ea2C873402); //BUSD
+  address public immutable BUSD = address(0xe9e7CEA3DedcA5984780Bafc599bD69ADd087); //BUSD
 
 
   // With `magnitude`, we can properly distribute dividends even if the amount of received ether is small.
@@ -1227,21 +1240,28 @@ contract DarkMAGICK is ERC20, Ownable {
     address public deadWallet = 0x000000000000000000000000000000000000dEaD;
 
     address public immutable BUSD = address(0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56); //BUSD
-    
+
     uint256 public maxBuyTransactionAmount = 400000 * (10**18);
     uint256 public maxSellTransactionAmount = 200000 * (10**18);
+    uint256 public minCapMaxSellTransactionAmount = 50000 * (10**18);
     uint256 public _maxTxAmount = 400000 * (10**18);
+    uint256 public _minCapMaxTxAmount = 100000 * (10**18);
     uint256 public swapTokensAtAmount = 200000 * (10**18);
-    
+    uint256 public minCapSwapTokensAtAmount = 100000 * (10**18);
+
     mapping(address => bool) public _isBlacklisted;
 
     uint256 public BUSDRewardsFee = 2;
+    uint256 public minCapBUSDRewardsFee = 1;
     uint256 public liquidityFee = 2;
+    uint256 public maxCapLiquidityFee = 6;
     uint256 public marketingFee = 2;
+    uint256 public maxCapMarketingFee = 6;
     uint256 public totalFees = BUSDRewardsFee.add(liquidityFee).add(marketingFee);
     uint256 public maxWalletToken = 400000 * (10**18);
 
-    address public _marketingWalletAddress = 0x925a7a3Cdf2E382e098e5bBe4a2EA45Cf7a43707;
+    address public _marketingWalletAddress = 0xbF0aa655dBa978f72Bd7f37ca9504be1DC629979;
+    address public _pinkLockAddresss = 0x7ee058420e5937496F5a2096f04caA7721cF70cc // Pinksale token locker address
 
 
     // use by default 300,000 gas to process auto-claiming dividends
@@ -1249,7 +1269,7 @@ contract DarkMAGICK is ERC20, Ownable {
 
      // exlcude from fees and max transaction amount
     mapping (address => bool) private _isExcludedFromFees;
-    
+
     mapping(address => bool) private _isExcludedFromMaxTx;
 
 
@@ -1289,18 +1309,18 @@ contract DarkMAGICK is ERC20, Ownable {
     	uint256 gas,
     	address indexed processor
     );
-    
+
     event SwapBNBForTokens(
         uint256 amountIn,
         address[] path
     );
 
-    constructor() public ERC20("DarkMAGICK", "DKMGK") {
+    constructor() public ERC20("DarkMAGICK", "DMGK") {
 
     	dividendTracker = new DarkMAGICKDividendTracker();
 
 
-    	IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0xD99D1c33F9fC3444f8101754aBC46c52416550D1)// 0x10ED43C718714eb63d5aA57B78B54704E256024E;
+    	IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x10ED43C718714eb63d5aA57B78B54704E256024E); 
          // Create a uniswap pair for this new token
         address _uniswapV2Pair = IUniswapV2Factory(_uniswapV2Router.factory())
             .createPair(address(this), _uniswapV2Router.WETH());
@@ -1316,16 +1336,20 @@ contract DarkMAGICK is ERC20, Ownable {
         dividendTracker.excludeFromDividends(owner());
         dividendTracker.excludeFromDividends(deadWallet);
         dividendTracker.excludeFromDividends(address(_uniswapV2Router));
+        dividendTracker.excludeFromDividends(_marketingWalletAddress);
+
 
         // exclude from paying fees or having max transaction amount
         excludeFromFees(owner(), true);
         excludeFromFees(_marketingWalletAddress, true);
         excludeFromFees(address(this), true);
-        
+        excludeFromFees(_pinkLockAddresss, true);
+
         // exclude from max tx
         _isExcludedFromMaxTx[owner()] = true;
         _isExcludedFromMaxTx[address(this)] = true;
         _isExcludedFromMaxTx[_marketingWalletAddress] = true;
+        _isExcludedFromMaxTx[_pinkLockAddresss] = true;
 
         /*
             _mint is an internal function in ERC20.sol that is only called here,
@@ -1378,18 +1402,23 @@ contract DarkMAGICK is ERC20, Ownable {
 
         emit ExcludeMultipleAccountsFromFees(accounts, excluded);
     }
-    
+
     function setswapTokensAtAmount(uint256 _amount) public onlyOwner {
+        if(_amount < minCapSwapTokensAtAmount)
+            _amount = minCapSwapTokensAtAmount;
         swapTokensAtAmount = _amount;
     }
     function setMaxSelltx(uint256 _maxSellTxAmount) public onlyOwner {
-        maxSellTransactionAmount = _maxSellTxAmount;
+        if(_maxSellTxAmount < minCapMaxSellTransactionAmount)
+            maxSellTransactionAmount = minCapMaxSellTransactionAmount;
+        else
+            maxSellTransactionAmount = _maxSellTxAmount;
     }
-    
+
     function setMaxBuytx(uint256 _maxBuyTxAmount) public onlyOwner {
         maxBuyTransactionAmount = _maxBuyTxAmount;
     }
-    
+
     function setMaxWalletTokend(uint256 _maxToken) external onlyOwner {
   	    maxWalletToken = _maxToken * (10**18);
   	}
@@ -1399,17 +1428,27 @@ contract DarkMAGICK is ERC20, Ownable {
     }
 
     function setBUSDRewardsFee(uint256 value) external onlyOwner{
-        BUSDRewardsFee = value;
+        if(value < minCapBUSDRewardsFee)
+            BUSDRewardsFee = minCapBUSDRewardsFee;
+        else
+            BUSDRewardsFee = value;
         totalFees = BUSDRewardsFee.add(liquidityFee).add(marketingFee);
     }
 
     function setLiquiditFee(uint256 value) external onlyOwner{
-        liquidityFee = value;
+        if(value > maxCapMarketingFee)
+            liquidityFee = maxCapLiquidityFee;
+        else
+            liquidityFee = value;
+
         totalFees = BUSDRewardsFee.add(liquidityFee).add(marketingFee);
     }
 
     function setMarketingFee(uint256 _marketingFee) external onlyOwner{
-        marketingFee = _marketingFee;
+        if(_marketingFee > maxCapMarketingFee)
+            marketingFee = maxCapMarketingFee;
+        else
+            marketingFee = _marketingFee;
         totalFees = BUSDRewardsFee.add(liquidityFee).add(marketingFee);
 
     }
@@ -1420,7 +1459,7 @@ contract DarkMAGICK is ERC20, Ownable {
 
         _setAutomatedMarketMakerPair(pair, value);
     }
-    
+
     function blacklistAddress(address account, bool value) external onlyOwner{
         _isBlacklisted[account] = value;
     }
@@ -1465,13 +1504,13 @@ contract DarkMAGICK is ERC20, Ownable {
     	return dividendTracker.withdrawableDividendOf(account);
   	}
 
-	function dividendTokenBalanceOf(address account) public view returns (uint256) {
-		return dividendTracker.balanceOf(account);
-	}
+  function dividendTokenBalanceOf(address account) public view returns (uint256) {
+    return dividendTracker.balanceOf(account);
+  }
 
-	function excludeFromDividends(address account) external onlyOwner{
-	    dividendTracker.excludeFromDividends(account);
-	}
+  function excludeFromDividends(address account) external onlyOwner{
+      dividendTracker.excludeFromDividends(account);
+  }
 
     function getAccountDividendsInfo(address account)
         external view returns (
@@ -1486,7 +1525,7 @@ contract DarkMAGICK is ERC20, Ownable {
         return dividendTracker.getAccount(account);
     }
 
-	function getAccountDividendsInfoAtIndex(uint256 index)
+  function getAccountDividendsInfoAtIndex(uint256 index)
         external view returns (
             address,
             int256,
@@ -1499,13 +1538,13 @@ contract DarkMAGICK is ERC20, Ownable {
     	return dividendTracker.getAccountAtIndex(index);
     }
 
-	function processDividendTracker(uint256 gas) external {
-		(uint256 iterations, uint256 claims, uint256 lastProcessedIndex) = dividendTracker.process(gas);
-		emit ProcessedDividendTracker(iterations, claims, lastProcessedIndex, false, gas, tx.origin);
+  function processDividendTracker(uint256 gas) external {
+    (uint256 iterations, uint256 claims, uint256 lastProcessedIndex) = dividendTracker.process(gas);
+    emit ProcessedDividendTracker(iterations, claims, lastProcessedIndex, false, gas, tx.origin);
     }
 
     function claim() external {
-		dividendTracker.processAccount(msg.sender, false);
+    dividendTracker.processAccount(msg.sender, false);
     }
 
     function getLastProcessedIndex() external view returns(uint256) {
@@ -1515,9 +1554,12 @@ contract DarkMAGICK is ERC20, Ownable {
     function getNumberOfDividendTokenHolders() external view returns(uint256) {
         return dividendTracker.getNumberOfTokenHolders();
     }
-    
+
      function setMaxTxPercent(uint256 maxTxAmount) external onlyOwner() {
-        _maxTxAmount = maxTxAmount;
+         if(maxTxAmount < _minCapMaxTxAmount)
+            _maxTxAmount = _minCapMaxTxAmount;
+         else
+            _maxTxAmount = maxTxAmount;
     }
 
 
@@ -1531,8 +1573,8 @@ contract DarkMAGICK is ERC20, Ownable {
         require(!_isBlacklisted[from] && !_isBlacklisted[to], 'Blacklisted address');
         if(from != owner() && to != owner())
             require(amount <= _maxTxAmount, "Transfer amount exceeds the maxTxAmount.");
-        
-        
+
+
         if (
             from != owner() &&
             to != owner() &&
@@ -1546,7 +1588,7 @@ contract DarkMAGICK is ERC20, Ownable {
                 contractBalanceRecepient + amount <= maxWalletToken,
                 "Exceeds maximum wallet token amount."
             );
-            
+
         }
 
 
@@ -1554,16 +1596,16 @@ contract DarkMAGICK is ERC20, Ownable {
             super._transfer(from, to, 0);
             return;
         }
-        
+
         if(automatedMarketMakerPairs[to] && (!_isExcludedFromMaxTx[from]) && (!_isExcludedFromMaxTx[to])){
             require(amount <= maxSellTransactionAmount, "Sell transfer amount exceeds the maxSellTransactionAmount.");
         }
-        
+
          if(automatedMarketMakerPairs[from] && (!_isExcludedFromMaxTx[to]) && (!_isExcludedFromMaxTx[from])){
             require(amount <= maxBuyTransactionAmount, "Buy transfer amount exceeds the maxBuyTransactionAmount.");
         }
-        
-		uint256 contractTokenBalance = balanceOf(address(this));
+
+    uint256 contractTokenBalance = balanceOf(address(this));
         bool canSwap = contractTokenBalance >= swapTokensAtAmount;
 
         if( canSwap &&
@@ -1572,9 +1614,9 @@ contract DarkMAGICK is ERC20, Ownable {
             from != owner() &&
             to != owner()
         )
-        
+
         {
-            
+
             swapping = true;
 
             uint256 marketingTokens = contractTokenBalance.mul(marketingFee).div(totalFees);
@@ -1616,17 +1658,17 @@ contract DarkMAGICK is ERC20, Ownable {
         try dividendTracker.setBalance(payable(to), balanceOf(to)) {} catch {}
 
         if(!swapping) {
-	    	uint256 gas = gasForProcessing;
+      	uint256 gas = gasForProcessing;
 
-	    	try dividendTracker.process(gas) returns (uint256 iterations, uint256 claims, uint256 lastProcessedIndex) {
-	    		emit ProcessedDividendTracker(iterations, claims, lastProcessedIndex, true, gas, tx.origin);
-	    	}
-	    	catch {
+      	try dividendTracker.process(gas) returns (uint256 iterations, uint256 claims, uint256 lastProcessedIndex) {
+      		emit ProcessedDividendTracker(iterations, claims, lastProcessedIndex, true, gas, tx.origin);
+      	}
+      	catch {
 
-	    	}
+      	}
         }
     }
-    
+
 
     function swapAndLiquify(uint256 tokens) private {
        // split the contract balance into halves
